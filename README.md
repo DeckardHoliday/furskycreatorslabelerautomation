@@ -1,3 +1,7 @@
+## This code is forked from SonaSky. The only changes made were ones specific to the needs of the fursky creator labeler.
+
+## View SonaSky Repo: https://github.com/astrabun/sonasky
+
 # SonaSky
 
 > A Bluesky labeler allowing self-assignment of fursona species labels
