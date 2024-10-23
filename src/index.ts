@@ -367,12 +367,8 @@ async function main() {
       // 🖼️: @snowfox.gay <- 18+`;
       newRecord.description = `Show off what you do!
 ❓: Find a role post, and like it! To remove, unlike it.
-
-Automation provided by @sonasky.bsky.social :
-🐇🧑‍💻: @astra.bunnys.ky <- 18+
-
-Labeler managed by Deckard:
-🦌: @deckardholiday.audioelk.com <- 18+
+Automation provided by: @astra.bunnys.ky <- 18+
+Labeler managed by  @deckardholiday.audioelk.com <- 18+
 
 Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
         cursorFirehoseTs
