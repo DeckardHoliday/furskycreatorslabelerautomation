@@ -50,7 +50,7 @@ While on the subject of the DB, it's also used to store checkpoints on where the
 
 ## Localization
 
-To contribute to localization of SonaSky labels, see [sonasky-labels-localization](https://github.com/astrabun/sonasky-labels-localization). Labels are added in English by default, but I would love to be inclusive to others and localize to other languages :)
+To contribute to localization of SonaSky labels, see [sonasky-labels-def](https://github.com/astrabun/sonasky-labels-def). Labels are added in English by default, but I would love to be inclusive to others and localize to other languages :)
 
 ## Credits
 

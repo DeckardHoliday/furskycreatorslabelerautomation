@@ -1,3 +1,4 @@
+// TODO: consider switching to jetstream; @skyware/jetstream
 import { Firehose, RepoOp } from "@skyware/firehose";
 
 import { BskyAgent, AppBskyActorDefs, AppBskyActorProfile } from "@atproto/api";
@@ -45,6 +46,37 @@ async function main() {
   await agent.login({
     identifier: process.env.BSKY_USER as string,
     password: process.env.BSKY_PASS as string,
+  }).then(() => {
+    fs.writeFile(
+      `${GENERATE_JSON_FILE_OF_SPECIES__DIR}/ratelimit.json`,
+      JSON.stringify({ "status": "OK" }),
+      function (err) {
+        if (err) {
+          console.log(err);
+        }
+      }
+    );
+  }).catch((err) => {
+    console.error(err);
+    if (err.toString().includes("Rate Limit Exceeded")) {
+      let errDetails = {
+        error: err.error,
+        date: err.headers.date,
+        "ratelimit-limit": err.headers["ratelimit-limit"],
+        "ratelimit-policy": err.headers["ratelimit-policy"],
+        "ratelimit-remaining": err.headers["ratelimit-remaining"],
+        "ratelimit-reset": err.headers["ratelimit-reset"],
+      }
+      fs.writeFile(
+        `${GENERATE_JSON_FILE_OF_SPECIES__DIR}/ratelimit.json`,
+        JSON.stringify({ "status": "RATE_LIMIT", "details": errDetails }, undefined, 4),
+        function (err) {
+          if (err) {
+            console.log(err);
+          }
+        }
+      );
+    }
   });
 
   const getOzoneCurrentPolicies = async () => {
@@ -66,18 +98,16 @@ async function main() {
       const current_simple = (
         response as any
       ).data.value.policies.labelValueDefinitions.map((i: any) => {
-        let postsLink = `https://bsky.app/search?q=from%3A${
-          process.env.BSKY_USER
-        }+%22species%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
+        let postsLink = `https://bsky.app/search?q=from%3A${process.env.BSKY_USER
+          }+%22species%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
         let sonaPostDefined =
           knownSonaPosts.rows.filter((j) => j.species === i.identifier)
             .length === 1;
         let sonaPost;
         if (sonaPostDefined) {
-          sonaPost = `https://bsky.app/profile/${ozone_service_user_did}/post/${
-            knownSonaPosts.rows.filter((j) => j.species === i.identifier)[0]
-              .postid
-          }`;
+          sonaPost = `https://bsky.app/profile/${ozone_service_user_did}/post/${knownSonaPosts.rows.filter((j) => j.species === i.identifier)[0]
+            .postid
+            }`;
         }
         return {
           id: i.identifier,
@@ -147,13 +177,12 @@ async function main() {
             description:
               isMetaTag === true
                 ? `${name} [Category: Meta]`
-                : `This user is a${
-                    ["a", "e", "i", "o", "u"].includes(
-                      name.at(0)!.toLowerCase()
-                    )
-                      ? "n"
-                      : ""
-                  } ${name}!`,
+                : `This user is a${["a", "e", "i", "o", "u"].includes(
+                  name.at(0)!.toLowerCase()
+                )
+                  ? "n"
+                  : ""
+                } ${name}!`,
           },
         ],
         severity: "inform",
@@ -338,7 +367,7 @@ async function main() {
       // 🖼️: @snowfox.gay <- 18+`;
       newRecord.description = `Show off your fursona (label)!
 ❓: Add=❤️! Remove=💔.
-🔍: Browse/Requests: https://sonasky-browse.bunnys.ky/ <-- READ/LEIA
+🔍: Browse/Requests: https://sonasky-browse.bunnys.ky/
 
 🐇🧑‍💻: @astra.bunnys.ky <- 18+
 🖼️: @snowfox.gay <- 18+
@@ -375,7 +404,7 @@ Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
             }
           }
         );
-      } catch {}
+      } catch { }
       dbclient
         .query(
           `
@@ -412,38 +441,59 @@ Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
               return;
             }
             dbrow["posturi"] = ((op as any).record.subject as any).uri;
-            let p = await agent.getPost({
-              repo: `${dbrow.posturi.replace("at://", "").split("/")[0]}`,
-              rkey: `${dbrow.posturi.split("/").slice(-1).join("/")}`,
-            });
-            let post_role_text = p.value.text;
-            if (
-              !post_role_text.startsWith("Species: ") &&
-              !post_role_text.startsWith("Meta: ")
-            ) {
-              return;
+            // check if post ID is in sonaposts table in db; if so, get the ID from there to save on API calls and slow down rate limiting
+            const knownSonaPostsQuery = `SELECT postid, species FROM sonaposts
+WHERE postid like $1
+LIMIT 1;`;
+            const sonapostid = dbrow.posturi.split("/").slice(-1).toString();
+            const knownSonaPosts = await dbclient.query(
+              knownSonaPostsQuery,
+              [sonapostid]
+            );
+            let sonaPostDefined =
+              knownSonaPosts.rows.filter((j) => j.postid === dbrow.posturi.split("/").slice(-1))
+                .length === 1;
+            let speciesLabelId;
+            let safe_species;
+            if (sonaPostDefined) {
+              speciesLabelId = knownSonaPosts.rows.filter((j) => j.postid === dbrow.posturi.split("/").slice(-1))[0].species;
             }
-            let species = post_role_text
-              .replace("Species: ", "")
-              .replace("Meta: ", "")
-              .split("//")[0]
-              .trim()
-              .replace(/ /g, "-")
-              .toLowerCase();
-            let safe_species = species.replace("'", "");
-            addLabelIfNotInOzoneCurrentPolicies(
-              species,
-              safe_species,
-              `${dbrow.posturi.split("/").slice(-1).join("/")}`,
-              post_role_text.startsWith("Meta: ")
-            );
-            const insertResult = await dbclient.query(
-              `
-                            INSERT INTO sonas (did, likepath, posturi, species, ts) VALUES ($1, $2, $3, $4, $5) RETURNING *;
-                          `,
-              [dbrow.did, dbrow.likepath, dbrow.posturi, safe_species, dbrow.ts]
-            );
-            console.log("Inserted:", insertResult.rows[0]);
+            if (speciesLabelId === undefined) {
+              let p = await agent.getPost({
+                repo: `${dbrow.posturi.replace("at://", "").split("/")[0]}`,
+                rkey: `${dbrow.posturi.split("/").slice(-1).join("/")}`,
+              });
+              let post_role_text = p.value.text;
+              if (
+                !post_role_text.startsWith("Species: ") &&
+                !post_role_text.startsWith("Meta: ")
+              ) {
+                return;
+              }
+              let species = post_role_text
+                .replace("Species: ", "")
+                .replace("Meta: ", "")
+                .split("//")[0]
+                .trim()
+                .replace(/ /g, "-")
+                .toLowerCase();
+              safe_species = species.replace("'", "");
+              addLabelIfNotInOzoneCurrentPolicies(
+                species,
+                safe_species,
+                `${dbrow.posturi.split("/").slice(-1).join("/")}`,
+                post_role_text.startsWith("Meta: ")
+              );
+              const insertResult = await dbclient.query(
+                `
+                              INSERT INTO sonas (did, likepath, posturi, species, ts) VALUES ($1, $2, $3, $4, $5) RETURNING *;
+                            `,
+                [dbrow.did, dbrow.likepath, dbrow.posturi, safe_species, dbrow.ts]
+              );
+              console.log("Inserted:", insertResult.rows[0]);
+            } else {
+              safe_species = speciesLabelId;
+            }
             await updateDidRecordOzone(dbrow.did, "n/a", "add", safe_species);
           } else {
             // removed
