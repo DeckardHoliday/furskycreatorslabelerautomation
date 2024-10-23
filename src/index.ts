@@ -93,13 +93,13 @@ async function main() {
         fs.mkdirSync(GENERATE_JSON_FILE_OF_SPECIES__DIR, { recursive: true });
       }
       const knownSonaPosts = await dbclient.query(`
-                SELECT postid, species FROM sonaposts
+                SELECT postid, role FROM posts
             `);
       const current_simple = (
         response as any
       ).data.value.policies.labelValueDefinitions.map((i: any) => {
         let postsLink = `https://bsky.app/search?q=from%3A${process.env.BSKY_USER
-          }+%22species%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
+          }+%role%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
         let sonaPostDefined =
           knownSonaPosts.rows.filter((j) => j.species === i.identifier)
             .length === 1;
@@ -141,8 +141,8 @@ async function main() {
     let name = toTitleCase(label.replace(/-/g, " "));
     const knownSonaPosts = await dbclient.query(
       `
-            SELECT postid, species FROM sonaposts
-            WHERE species = $1
+            SELECT postid, role FROM posts
+            WHERE roles = $1
             LIMIT 1;
         `,
       [label]
@@ -151,7 +151,7 @@ async function main() {
       dbclient
         .query(
           `
-                insert into sonaposts (postid,species) VALUES ($1, $2) RETURNING *;
+                insert into posts (postid,roles) VALUES ($1, $2) RETURNING *;
             `,
           [postId || "", label]
         )
@@ -275,21 +275,21 @@ async function main() {
 
   await dbclient.connect();
   await dbclient.query(`
-    CREATE TABLE IF NOT EXISTS sonas (
+    CREATE TABLE IF NOT EXISTS roles (
         id SERIAL PRIMARY KEY,
         did VARCHAR(255) NOT NULL,
         likepath VARCHAR(255) NOT NULL,
         posturi VARCHAR(255) NOT NULL,
-        species VARCHAR(255) NOT NULL,
+        role VARCHAR(255) NOT NULL,
         ts TIMESTAMP NOT NULL
     );
     `);
 
   await dbclient.query(`
-    CREATE TABLE IF NOT EXISTS sonaposts (
+    CREATE TABLE IF NOT EXISTS posts (
         id SERIAL PRIMARY KEY,
         postid VARCHAR(255) NOT NULL,
-        species VARCHAR(255) NOT NULL
+        role VARCHAR(255) NOT NULL
     );
     `);
 
@@ -365,12 +365,15 @@ async function main() {
 
       // 🐇🧑‍💻: @astra.bunnys.ky <- 18+
       // 🖼️: @snowfox.gay <- 18+`;
-      newRecord.description = `Show off your fursona (label)!
-❓: Add=❤️! Remove=💔.
-🔍: Browse/Requests: https://sonasky-browse.bunnys.ky/
+      newRecord.description = `Show off what you do!
+❓: Find a role post, and like it! To remove, unlike it.
 
+Automation provided by @sonasky.bsky.social :
 🐇🧑‍💻: @astra.bunnys.ky <- 18+
-🖼️: @snowfox.gay <- 18+
+
+Labeler managed by Deckard:
+🦌: @deckardholiday.audioelk.com <- 18+
+
 Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
         cursorFirehoseTs
       ).fromNow(true)}`;
@@ -442,7 +445,7 @@ Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
             }
             dbrow["posturi"] = ((op as any).record.subject as any).uri;
             // check if post ID is in sonaposts table in db; if so, get the ID from there to save on API calls and slow down rate limiting
-            const knownSonaPostsQuery = `SELECT postid, species FROM sonaposts
+            const knownSonaPostsQuery = `SELECT postid, role FROM posts
 WHERE postid like $1
 LIMIT 1;`;
             const sonapostid = dbrow.posturi.split("/").slice(-1).toString();
@@ -465,13 +468,13 @@ LIMIT 1;`;
               });
               let post_role_text = p.value.text;
               if (
-                !post_role_text.startsWith("Species: ") &&
+                !post_role_text.startsWith("Role: ") &&
                 !post_role_text.startsWith("Meta: ")
               ) {
                 return;
               }
               let species = post_role_text
-                .replace("Species: ", "")
+                .replace("Role: ", "")
                 .replace("Meta: ", "")
                 .split("//")[0]
                 .trim()
@@ -486,7 +489,7 @@ LIMIT 1;`;
               );
               const insertResult = await dbclient.query(
                 `
-                              INSERT INTO sonas (did, likepath, posturi, species, ts) VALUES ($1, $2, $3, $4, $5) RETURNING *;
+                              INSERT INTO roles (did, likepath, posturi, role, ts) VALUES ($1, $2, $3, $4, $5) RETURNING *;
                             `,
                 [dbrow.did, dbrow.likepath, dbrow.posturi, safe_species, dbrow.ts]
               );
@@ -500,7 +503,7 @@ LIMIT 1;`;
             try {
               const selectResult = await dbclient.query(
                 `
-                                SELECT * FROM sonas WHERE likepath = $1 AND did = $2;
+                                SELECT * FROM roles WHERE likepath = $1 AND did = $2;
                               `,
                 [dbrow.likepath, dbrow.did]
               );
@@ -510,7 +513,7 @@ LIMIT 1;`;
                 ];
                 const deleteResult = await dbclient.query(
                   `
-                                    DELETE FROM sonas WHERE likepath = $1 AND did = $2 RETURNING *;
+                                    DELETE FROM roles WHERE likepath = $1 AND did = $2 RETURNING *;
                                   `,
                   [dbrow.likepath, dbrow.did]
                 );
@@ -525,7 +528,7 @@ LIMIT 1;`;
                   );
                   const deleteResult = await dbclient.query(
                     `
-                                        DELETE FROM sonas WHERE species = $1 AND did = $2 RETURNING *;
+                                        DELETE FROM roles WHERE role = $1 AND did = $2 RETURNING *;
                                       `,
                     [species_val, dbrow.did]
                   );

@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:latest
-    container_name: sonabotdb
+    container_name: rolebotdb
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
