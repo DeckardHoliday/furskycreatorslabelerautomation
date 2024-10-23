@@ -27,6 +27,7 @@ const dbclient = new PgClient({
   database: process.env.POSTGRES_DB,
 });
 
+
 const agent = new BskyAgent({
   service: "https://bsky.social",
 });
@@ -360,9 +361,11 @@ async function main() {
       }
       newRecord.displayName = newDisplayName;
       newRecord.description = `Show off your role!
-❓: Add=❤️! Remove=💔.
 
-🦌: @deckardholiday.audioelk.com
+Like to add role, Unlike to remove!
+
+Automation by @astra.bunnys.ky <- 18+
+Managed By @deckardholiday.audioelk.com <- 18+
 Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
         cursorFirehoseTs
       ).fromNow(true)}`;
