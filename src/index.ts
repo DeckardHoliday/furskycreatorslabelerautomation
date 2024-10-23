@@ -351,20 +351,14 @@ async function main() {
       }
       const newRecord: AppBskyActorProfile.Record = { ...existing.data.value };
       // newRecord.displayName = `SonaSky [Currently @${cursorFirehoseTs}|Delay~= ${dayjs(cursorFirehoseTs).fromNow(true)}]`;
-      let newDisplayName = "SonaSky";
+      let newDisplayName = "FurSky Creators";
       // only show the delay in the display name if more than 5 minutes
       if (dayjs().diff(dayjs(cursorFirehoseTs), "minute") > 5) {
-        newDisplayName = `SonaSky [Delayed by ~${dayjs(
+        newDisplayName = `FurSky Creators [Delayed by ~${dayjs(
           cursorFirehoseTs
         ).fromNow(true)}]`;
       }
       newRecord.displayName = newDisplayName;
-      //             newRecord.description = `Show off your fursona (label)!
-      // ❓: Find a species post, and like it! To remove, unlike it.
-      // 🔍: Browse/Species Request Instructions: https://sonasky-browse.bunnys.ky/ <-- PLEASE READ/POR FAVOR LEIA
-
-      // 🐇🧑‍💻: @astra.bunnys.ky <- 18+
-      // 🖼️: @snowfox.gay <- 18+`;
       newRecord.description = `Show off your role!
 ❓: Add=❤️! Remove=💔.
 
