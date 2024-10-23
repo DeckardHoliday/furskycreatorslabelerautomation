@@ -365,11 +365,10 @@ async function main() {
 
       // 🐇🧑‍💻: @astra.bunnys.ky <- 18+
       // 🖼️: @snowfox.gay <- 18+`;
-      newRecord.description = `Show off what you do!
-❓: Find a role post, and like it! To remove, unlike it.
-Automation provided by: @astra.bunnys.ky <- 18+
-Labeler managed by  @deckardholiday.audioelk.com <- 18+
+      newRecord.description = `Show off your role!
+❓: Add=❤️! Remove=💔.
 
+🦌: @deckardholiday.audioelk.com
 Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
         cursorFirehoseTs
       ).fromNow(true)}`;
