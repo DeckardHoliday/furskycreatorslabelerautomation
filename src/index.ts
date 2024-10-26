@@ -27,7 +27,6 @@ const dbclient = new PgClient({
   database: process.env.POSTGRES_DB,
 });
 
-
 const agent = new BskyAgent({
   service: "https://bsky.social",
 });
@@ -94,13 +93,13 @@ async function main() {
         fs.mkdirSync(GENERATE_JSON_FILE_OF_SPECIES__DIR, { recursive: true });
       }
       const knownSonaPosts = await dbclient.query(`
-                SELECT postid, role FROM posts
+                SELECT postid, species FROM sonaposts
             `);
       const current_simple = (
         response as any
       ).data.value.policies.labelValueDefinitions.map((i: any) => {
         let postsLink = `https://bsky.app/search?q=from%3A${process.env.BSKY_USER
-          }+%role%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
+          }+%22species%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
         let sonaPostDefined =
           knownSonaPosts.rows.filter((j) => j.species === i.identifier)
             .length === 1;
@@ -135,15 +134,16 @@ async function main() {
     label: string,
     safeLabel?: string,
     postId?: string,
-    isMetaTag?: boolean
+    isMetaTag?: boolean,
+    nsfw?: boolean,
   ) => {
     await agent.refreshSession();
     let current_policies = await getOzoneCurrentPolicies();
     let name = toTitleCase(label.replace(/-/g, " "));
     const knownSonaPosts = await dbclient.query(
       `
-            SELECT postid, role FROM posts
-            WHERE roles = $1
+            SELECT postid, species FROM sonaposts
+            WHERE species = $1
             LIMIT 1;
         `,
       [label]
@@ -152,7 +152,7 @@ async function main() {
       dbclient
         .query(
           `
-                insert into posts (postid,roles) VALUES ($1, $2) RETURNING *;
+                insert into sonaposts (postid,species) VALUES ($1, $2) RETURNING *;
             `,
           [postId || "", label]
         )
@@ -187,7 +187,7 @@ async function main() {
           },
         ],
         severity: "inform",
-        adultOnly: false,
+        adultOnly: nsfw ?? false,
         identifier: safeLabel ? safeLabel : label,
         defaultSetting: "warn",
       });
@@ -217,7 +217,7 @@ async function main() {
     subject: string | AppBskyActorDefs.ProfileView,
     _cid: string,
     action: "add" | "remove",
-    labelVal: string
+    labelVal: string,
   ) => {
     await agent.refreshSession();
     let labeller_did = agent.session?.did;
@@ -276,21 +276,21 @@ async function main() {
 
   await dbclient.connect();
   await dbclient.query(`
-    CREATE TABLE IF NOT EXISTS roles (
+    CREATE TABLE IF NOT EXISTS sonas (
         id SERIAL PRIMARY KEY,
         did VARCHAR(255) NOT NULL,
         likepath VARCHAR(255) NOT NULL,
         posturi VARCHAR(255) NOT NULL,
-        role VARCHAR(255) NOT NULL,
+        species VARCHAR(255) NOT NULL,
         ts TIMESTAMP NOT NULL
     );
     `);
 
   await dbclient.query(`
-    CREATE TABLE IF NOT EXISTS posts (
+    CREATE TABLE IF NOT EXISTS sonaposts (
         id SERIAL PRIMARY KEY,
         postid VARCHAR(255) NOT NULL,
-        role VARCHAR(255) NOT NULL
+        species VARCHAR(255) NOT NULL
     );
     `);
 
@@ -305,8 +305,8 @@ async function main() {
   let cursorFirehose = 0;
   let cursorFirehoseTs = "";
 
-  // Cycles through 0-9, and any time it hits 0, update display name with approximate label delay.
-  // In effect, every 10 minutes, the display name will reflect how far behind the labeler is
+  // Cycles through 0-60, and any time it hits 60, update display name with approximate label delay.
+  // In effect, once per hour, the display name will reflect how far behind the labeler is
   let updateDisplayNameTicker = 0;
 
   // get last known cursor if exists
@@ -360,12 +360,19 @@ async function main() {
         ).fromNow(true)}]`;
       }
       newRecord.displayName = newDisplayName;
-      newRecord.description = `Show off your role!
+      //             newRecord.description = `Show off your fursona (label)!
+      // ❓: Find a species post, and like it! To remove, unlike it.
+      // 🔍: Browse/Species Request Instructions: https://sonasky-browse.bunnys.ky/ <-- PLEASE READ/POR FAVOR LEIA
 
-Like to add role, Unlike to remove!
+      // 🐇🧑‍💻: @astra.bunnys.ky <- 18+
+      // 🖼️: @snowfox.gay <- 18+`;
+      newRecord.description = `Show off what you do!
+❓: Add=❤️! Remove=💔.
+🔍: Browse Roles: https://furskycreators.audioelk.com
 
-Automation by @astra.bunnys.ky <- 18+
-Managed By @deckardholiday.audioelk.com <- 18+
+🐇 Bot by: @astra.bunnys.ky <- 18+
+🦌 Run by: @deckardholiday.audioelk.com <- 18+
+
 Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
         cursorFirehoseTs
       ).fromNow(true)}`;
@@ -378,7 +385,7 @@ Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
       });
     };
     updateDisplayName();
-    updateDisplayNameTicker = (updateDisplayNameTicker + 1) % 10; // update ticker;
+    updateDisplayNameTicker++; // update ticker;
 
     setInterval(() => {
       const timestamp = new Date().toISOString();
@@ -412,11 +419,12 @@ Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
         })
         .catch((err) => console.error(err));
 
-      // Delay ticker logic
-      if (updateDisplayNameTicker === 0) {
+      // Delay ticker logic. If 60 cycles have gone by, update display name
+      if (updateDisplayNameTicker === 60) {
         updateDisplayName();
+        updateDisplayNameTicker = 0;
       }
-      updateDisplayNameTicker = (updateDisplayNameTicker + 1) % 10; // update ticker;
+      updateDisplayNameTicker++ // update ticker;
     }, 60000); // Every minute, store checkpoint in db; may raise this in the future.
   });
 
@@ -437,7 +445,7 @@ Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
             }
             dbrow["posturi"] = ((op as any).record.subject as any).uri;
             // check if post ID is in sonaposts table in db; if so, get the ID from there to save on API calls and slow down rate limiting
-            const knownSonaPostsQuery = `SELECT postid, role FROM posts
+            const knownSonaPostsQuery = `SELECT postid, species FROM sonaposts
 WHERE postid like $1
 LIMIT 1;`;
             const sonapostid = dbrow.posturi.split("/").slice(-1).toString();
@@ -472,16 +480,22 @@ LIMIT 1;`;
                 .trim()
                 .replace(/ /g, "-")
                 .toLowerCase();
+              let nfsw_label = false;
+              if (species.indexOf('//NSFW') > 0) {
+                species = species.replace('//NSFW', '');
+                nfsw_label = true;
+              }
               safe_species = species.replace("'", "");
               addLabelIfNotInOzoneCurrentPolicies(
                 species,
                 safe_species,
                 `${dbrow.posturi.split("/").slice(-1).join("/")}`,
-                post_role_text.startsWith("Meta: ")
+                post_role_text.startsWith("Meta: "),
+                nfsw_label
               );
               const insertResult = await dbclient.query(
                 `
-                              INSERT INTO roles (did, likepath, posturi, role, ts) VALUES ($1, $2, $3, $4, $5) RETURNING *;
+                              INSERT INTO sonas (did, likepath, posturi, species, ts) VALUES ($1, $2, $3, $4, $5) RETURNING *;
                             `,
                 [dbrow.did, dbrow.likepath, dbrow.posturi, safe_species, dbrow.ts]
               );
@@ -495,7 +509,7 @@ LIMIT 1;`;
             try {
               const selectResult = await dbclient.query(
                 `
-                                SELECT * FROM roles WHERE likepath = $1 AND did = $2;
+                                SELECT * FROM sonas WHERE likepath = $1 AND did = $2;
                               `,
                 [dbrow.likepath, dbrow.did]
               );
@@ -505,7 +519,7 @@ LIMIT 1;`;
                 ];
                 const deleteResult = await dbclient.query(
                   `
-                                    DELETE FROM roles WHERE likepath = $1 AND did = $2 RETURNING *;
+                                    DELETE FROM sonas WHERE likepath = $1 AND did = $2 RETURNING *;
                                   `,
                   [dbrow.likepath, dbrow.did]
                 );
@@ -520,7 +534,7 @@ LIMIT 1;`;
                   );
                   const deleteResult = await dbclient.query(
                     `
-                                        DELETE FROM roles WHERE role = $1 AND did = $2 RETURNING *;
+                                        DELETE FROM sonas WHERE species = $1 AND did = $2 RETURNING *;
                                       `,
                     [species_val, dbrow.did]
                   );
