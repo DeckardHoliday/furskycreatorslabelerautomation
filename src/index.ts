@@ -380,6 +380,39 @@ async function main() {
     console.log("Firehose connection established");
   });
 
+  setInterval(() => {
+    const timestamp = new Date().toISOString();
+    console.log(
+      `${timestamp} cursor: ${cursorFirehose} (which is ~${cursorFirehoseTs})`
+    );
+    getOzoneCurrentPolicies(); // trigger dump to file if enabled
+    try {
+      if (!fs.existsSync(GENERATE_JSON_FILE_OF_SPECIES__DIR)) {
+        fs.mkdirSync(GENERATE_JSON_FILE_OF_SPECIES__DIR, { recursive: true });
+      }
+      fs.writeFile(
+        `${GENERATE_JSON_FILE_OF_SPECIES__DIR}/cursortime.txt`,
+        cursorFirehoseTs,
+        function (err) {
+          if (err) {
+            console.log(err);
+          }
+        }
+      );
+    } catch { }
+    dbclient
+      .query(
+        `
+              insert into firehosecheckpoint (cursor,ts) VALUES ($1, current_timestamp) RETURNING *;
+          `,
+        [cursorFirehose.toString()]
+      )
+      .then((res) => {
+        console.log(`Logged to checkpoint table: ${JSON.stringify(res)}`);
+      })
+      .catch((err) => console.error(err));
+  }, 60000); // Every minute, store checkpoint in db; may raise this in the future.
+
   firehose.on("commit", async (commit) => {
     cursorFirehose = commit.seq;
     cursorFirehoseTs = commit.time;
@@ -432,6 +465,9 @@ LIMIT 1;`;
                 .trim()
                 .replace(/ /g, "-")
                 .toLowerCase();
+              if (species === "3d") { species = "three-d-artist" };
+              if (species === "2d") { species = "two-d-artist" };
+              if (species === "nsfw") { species = "nsfw-label" };
               safe_species = species.replace("'", "");
               addLabelIfNotInOzoneCurrentPolicies(
                 species,
