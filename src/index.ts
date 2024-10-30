@@ -10,6 +10,8 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 dayjs.extend(relativeTime);
 
+const DELAY_START_TIME = 15000; // Delays main() function call so we don't spam connection requests on docker restart instance loop
+
 const GENERATE_JSON_FILE_OF_SPECIES =
   process.env.GENERATE_JSON_FILE_OF_SPECIES === "true";
 const GENERATE_JSON_FILE_OF_SPECIES__DIR = "/tmp/labels";
@@ -42,6 +44,45 @@ function toTitleCase(str: string) {
   );
 }
 
+function wait_to_resume(resume_time: number, resume_date: string) {
+  const current_epoch = Math.floor(Date.now() / 1000);
+  const wait_time = (resume_time - current_epoch) + 3; // Ensures we fire after rate limit has been removed
+
+  // If wait_time is negative or zero, trigger immediately
+  if (wait_time <= 0) {
+    console.log("No wait needed. Starting immediately...");
+    startMain();
+    return;
+  }
+
+  console.log("Currently Rate Limited");
+  console.log("Resuming at ", resume_date);
+
+  const update_interval = setInterval(() => {
+    console.log("-----------------");
+    console.log("Currently Rate Limited");
+    console.log("Resuming at ", resume_date);
+  }, 10800000); // Print update every 3 hours (10800000 ms)
+
+  setTimeout(() => {
+    clearInterval(update_interval);
+    console.log("Rate limit expired. Restarting...");
+    startMain();
+  }, wait_time * 1000); // Convert wait_time to milliseconds
+
+  function startMain() {
+    main().catch((err) => {
+      if (typeof err === 'string') {
+        throw new Error(`Need to restart... ${err}`);
+      } else if (err.reset_epoch) {
+        console.log("Moving to standby...");
+        wait_to_resume(err.reset_epoch, err.reset_date);
+      }
+    });
+  }
+}
+
+
 async function main() {
   await agent.login({
     identifier: process.env.BSKY_USER as string,
@@ -67,15 +108,23 @@ async function main() {
         "ratelimit-remaining": err.headers["ratelimit-remaining"],
         "ratelimit-reset": err.headers["ratelimit-reset"],
       }
-      fs.writeFile(
-        `${GENERATE_JSON_FILE_OF_SPECIES__DIR}/ratelimit.json`,
-        JSON.stringify({ "status": "RATE_LIMIT", "details": errDetails }, undefined, 4),
-        function (err) {
-          if (err) {
-            console.log(err);
-          }
+      if (err.headers['ratelimit-reset']) {
+
+        const reset_epoch = +err.headers['ratelimit-reset']
+
+        if (reset_epoch && !isNaN(reset_epoch)) {
+
+          const reset_date = new Date(reset_epoch * 1000).toISOString().replace('T', ' ').slice(0, 19);
+
+          throw {
+            message: "We are rate limited.",
+            reset_epoch,
+            reset_date,
+          };
+
         }
-      );
+
+      }
     }
   });
 
@@ -135,7 +184,6 @@ async function main() {
     safeLabel?: string,
     postId?: string,
     isMetaTag?: boolean,
-    nsfw?: boolean,
   ) => {
     await agent.refreshSession();
     let current_policies = await getOzoneCurrentPolicies();
@@ -187,7 +235,7 @@ async function main() {
           },
         ],
         severity: "inform",
-        adultOnly: nsfw ?? false,
+        adultOnly: false,
         identifier: safeLabel ? safeLabel : label,
         defaultSetting: "warn",
       });
@@ -303,11 +351,7 @@ async function main() {
     `);
 
   let cursorFirehose = 0;
-  let cursorFirehoseTs = "";
-
-  // Cycles through 0-60, and any time it hits 60, update display name with approximate label delay.
-  // In effect, once per hour, the display name will reflect how far behind the labeler is
-  let updateDisplayNameTicker = 0;
+  let cursorFirehoseTs = "";  // Removed with profile update
 
   // get last known cursor if exists
   const lastKnownCheckpoint = await dbclient.query(`
@@ -333,99 +377,7 @@ async function main() {
   });
 
   firehose.on("open", () => {
-    const updateDisplayName = async () => {
-      // I would prefer to use agent.upsertProfile(), but this consistently throws an error: Record/avatar should be a blob ref
-      // so I'm just re-doing this myself
-      // First get current profile info:
-      if (!agent.session) {
-        throw new Error("Not logged in");
-      }
-      const existing = await agent.com.atproto.repo
-        .getRecord({
-          repo: agent.session.did,
-          collection: "app.bsky.actor.profile",
-          rkey: "self",
-        })
-        .catch((_) => undefined);
-      if (!existing) {
-        throw new Error("No profile somehow");
-      }
-      const newRecord: AppBskyActorProfile.Record = { ...existing.data.value };
-      // newRecord.displayName = `SonaSky [Currently @${cursorFirehoseTs}|Delay~= ${dayjs(cursorFirehoseTs).fromNow(true)}]`;
-      let newDisplayName = "FurSky Creators";
-      // only show the delay in the display name if more than 5 minutes
-      if (dayjs().diff(dayjs(cursorFirehoseTs), "minute") > 5) {
-        newDisplayName = `FurSky Creators [Delayed by ~${dayjs(
-          cursorFirehoseTs
-        ).fromNow(true)}]`;
-      }
-      newRecord.displayName = newDisplayName;
-      //             newRecord.description = `Show off your fursona (label)!
-      // ❓: Find a species post, and like it! To remove, unlike it.
-      // 🔍: Browse/Species Request Instructions: https://sonasky-browse.bunnys.ky/ <-- PLEASE READ/POR FAVOR LEIA
-
-      // 🐇🧑‍💻: @astra.bunnys.ky <- 18+
-      // 🖼️: @snowfox.gay <- 18+`;
-      newRecord.description = `Show off what you do!
-❓: Add=❤️! Remove=💔.
-🔍: Browse Roles: https://furskycreators.audioelk.com
-
-🐇 Bot by: @astra.bunnys.ky <- 18+
-🦌 Run by: @deckardholiday.audioelk.com <- 18+
-
-Cursor @ ${cursorFirehoseTs.split(".")[0]}Z, Delays ~= ${dayjs(
-        cursorFirehoseTs
-      ).fromNow(true)}`;
-      await agent.com.atproto.repo.putRecord({
-        repo: agent.session.did,
-        collection: "app.bsky.actor.profile",
-        rkey: "self",
-        record: newRecord,
-        swapRecord: existing?.data.cid || null,
-      });
-    };
-    updateDisplayName();
-    updateDisplayNameTicker++; // update ticker;
-
-    setInterval(() => {
-      const timestamp = new Date().toISOString();
-      console.log(
-        `${timestamp} cursor: ${cursorFirehose} (which is ~${cursorFirehoseTs})`
-      );
-      getOzoneCurrentPolicies(); // trigger dump to file if enabled
-      try {
-        if (!fs.existsSync(GENERATE_JSON_FILE_OF_SPECIES__DIR)) {
-          fs.mkdirSync(GENERATE_JSON_FILE_OF_SPECIES__DIR, { recursive: true });
-        }
-        fs.writeFile(
-          `${GENERATE_JSON_FILE_OF_SPECIES__DIR}/cursortime.txt`,
-          cursorFirehoseTs,
-          function (err) {
-            if (err) {
-              console.log(err);
-            }
-          }
-        );
-      } catch { }
-      dbclient
-        .query(
-          `
-                insert into firehosecheckpoint (cursor,ts) VALUES ($1, current_timestamp) RETURNING *;
-            `,
-          [cursorFirehose.toString()]
-        )
-        .then((res) => {
-          console.log(`Logged to checkpoint table: ${JSON.stringify(res)}`);
-        })
-        .catch((err) => console.error(err));
-
-      // Delay ticker logic. If 60 cycles have gone by, update display name
-      if (updateDisplayNameTicker === 60) {
-        updateDisplayName();
-        updateDisplayNameTicker = 0;
-      }
-      updateDisplayNameTicker++ // update ticker;
-    }, 60000); // Every minute, store checkpoint in db; may raise this in the future.
+    console.log("Firehose connection established");
   });
 
   firehose.on("commit", async (commit) => {
@@ -480,18 +432,12 @@ LIMIT 1;`;
                 .trim()
                 .replace(/ /g, "-")
                 .toLowerCase();
-              let nfsw_label = false;
-              if (species.indexOf('//NSFW') > 0) {
-                species = species.replace('//NSFW', '');
-                nfsw_label = true;
-              }
               safe_species = species.replace("'", "");
               addLabelIfNotInOzoneCurrentPolicies(
                 species,
                 safe_species,
                 `${dbrow.posturi.split("/").slice(-1).join("/")}`,
                 post_role_text.startsWith("Meta: "),
-                nfsw_label
               );
               const insertResult = await dbclient.query(
                 `
@@ -555,6 +501,26 @@ LIMIT 1;`;
   firehose.start();
 }
 
-main().catch((err) => {
-  throw Error(`Need to restart... ${err}`);
-});
+console.log(`Waiting ${DELAY_START_TIME / 1000} seconds before firing...`);
+
+setTimeout(() => {
+
+  console.log("Starting...")
+
+  main().catch((err) => {
+
+    if (typeof err === 'string') {
+
+      throw Error(`Need to restart... ${err}`);
+
+    } else if (err.reset_epoch) {
+
+      console.log("Moving to standby...")
+
+      wait_to_resume(err.reset_epoch, err.reset_date);
+
+    }
+
+  })
+
+}, DELAY_START_TIME)
