@@ -470,6 +470,7 @@ LIMIT 1;`;
                 .trim()
                 .replace(/ /g, "-")
                 .toLowerCase();
+              // Hardcoded fixes
               if (species === "3d") { species = "three-d-artist" };
               if (species === "2d") { species = "two-d-artist" };
               if (species === "nsfw") { species = "nsfw-label" };
