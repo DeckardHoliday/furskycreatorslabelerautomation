@@ -11,6 +11,8 @@ import relativeTime from "dayjs/plugin/relativeTime";
 dayjs.extend(relativeTime);
 
 const DELAY_START_TIME = 15000; // Delays main() function call so we don't spam connection requests on docker restart instance loop
+const REBOOT_DELAY_TIME = 15;   // Delays restart when a firehose error exists by 15 minutes. This way, we reduce the number of reconnect attempts
+const FIREHOSE_ERROR_LOG_STRING = "FIREHOSE ERROR. MOVING TO STANDBY BEFORE RESTARTING...";
 
 const GENERATE_JSON_FILE_OF_SPECIES =
   process.env.GENERATE_JSON_FILE_OF_SPECIES === "true";
@@ -373,7 +375,7 @@ async function main() {
 
   firehose.on("error", ({ cursor, error }) => {
     console.log(`Firehose errored on cursor: ${cursor}`, error);
-    throw new Error("EXITING DUE TO FIREHOSE ERROR");
+    throw new Error(FIREHOSE_ERROR_LOG_STRING);
   });
 
   firehose.on("open", () => {
@@ -409,6 +411,9 @@ async function main() {
       )
       .then((res) => {
         console.log(`Logged to checkpoint table: ${JSON.stringify(res)}`);
+        console.log(`Cursor is aprroximately ${dayjs(
+          cursorFirehoseTs
+        ).fromNow(true)} behind`)
       })
       .catch((err) => console.error(err));
   }, 60000); // Every minute, store checkpoint in db; may raise this in the future.
@@ -547,7 +552,16 @@ setTimeout(() => {
 
     if (typeof err === 'string') {
 
-      throw Error(`Need to restart... ${err}`);
+      if (err = FIREHOSE_ERROR_LOG_STRING) {
+
+        console.log("There was an error with Firehose. Moving to standby before resuming...");
+        const delay_time = Math.floor(Date.now() / 1000) + REBOOT_DELAY_TIME * 60;
+
+        wait_to_resume(delay_time, new Date(delay_time).toISOString())
+
+      } else {
+        throw Error(`Need to restart... ${err}`);
+      }
 
     } else if (err.reset_epoch) {
 
