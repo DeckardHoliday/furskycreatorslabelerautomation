@@ -516,6 +516,9 @@ function init() {
 
     main().catch((err) => {
 
+      console.log("An error has occurred.");
+      console.log(err);
+
       let delay_time = REBOOT_DELAY_TIME;
 
       if (err.reset_epoch) {
