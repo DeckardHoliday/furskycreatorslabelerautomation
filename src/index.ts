@@ -551,27 +551,23 @@ setTimeout(() => {
 
   main().catch((err) => {
 
-    if (typeof err === 'string') {
+    if (err.reset_epoch) {
 
-      if (err = FIREHOSE_ERROR_LOG_STRING) {
-
-        console.log("There was an error with Firehose. Moving to standby before resuming...");
-        const delay_time = Math.floor(Date.now() / 1000) + REBOOT_DELAY_TIME * 60;
-
-        wait_to_resume(delay_time, new Date(delay_time).toISOString())
-
-      } else {
-        throw Error(`Need to restart... ${err}`);
-      }
-
-    } else if (err.reset_epoch) {
-
-      console.log("Moving to standby...")
+      console.log("Rate limited. Moving to standby...")
 
       wait_to_resume(err.reset_epoch, err.reset_date);
 
+    } else {
+
+      console.log("There was an error. Moving to standby before resuming...");
+      console.log(`Error: ${err}`)
+
+      const delay_time = Math.floor(Date.now() / 1000) + REBOOT_DELAY_TIME * 60;
+
+      wait_to_resume(delay_time, new Date(delay_time).toISOString())
+
     }
 
-  })
+  });
 
 }, DELAY_START_TIME)
