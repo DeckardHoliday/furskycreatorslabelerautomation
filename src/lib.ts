@@ -9,9 +9,12 @@ function get_formatted_date_from_now(time_in_ms: number, future_date: Date) {
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12; // Convert to 12-hour format, setting 0 to 12
 
-    return `${month}${day}${year} ${hours}:${minutes} ${ampm}`;
+    return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`;
 }
 
+/**
+ * @description Delays the restart of the bot initialization given a set time.  
+*/
 export async function delay_start(time_in_ms: number, function_to_run: Function) {
 
     const future_date = new Date(Date.now() + time_in_ms);
@@ -19,13 +22,13 @@ export async function delay_start(time_in_ms: number, function_to_run: Function)
     console.log('-------------------------------------');
     console.log(`Standing by. Will resume in ~${time_in_ms / 1000 / 60} minutes, around ${get_formatted_date_from_now(time_in_ms, future_date)}`);
 
-    // Provides an update log every minute. May update this
+    // Provides an update log every 15 minutes
     const update_interval = setInterval(() => {
 
         console.log('-------------------------------------');
         console.log(`Standing by. Will resume in ~${time_in_ms / 1000 / 60} minutes, around ${get_formatted_date_from_now(time_in_ms, future_date)}`);
 
-    }, 60000)
+    }, 15 * 60000)
 
     setTimeout(() => {
 
