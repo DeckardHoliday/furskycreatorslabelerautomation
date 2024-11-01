@@ -46,42 +46,98 @@ function toTitleCase(str: string) {
   );
 }
 
-function wait_to_resume(resume_time: number, resume_date: string) {
+function delay_restart(delay_in_ms: number) {
+
+  console.log(`Standing by. Will resume in ~${delay_in_ms / 1000 / 60} minutes`);
+
+  setTimeout(() => {
+    console.log("Rate limit expired. Restarting...");
+
+    main().catch((err) => {
+
+      if (err.reset_epoch) {
+
+        console.log("Rate limited. Moving to standby...")
+
+        wait_to_resume(err.reset_epoch, err.reset_date);
+
+      } else {
+
+        console.log("There was an error. Moving to standby before resuming...");
+        console.log(`Error: ${err}`)
+        delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
+
+      }
+
+    });
+  }, delay_in_ms)
+
+}
+
+function wait_to_resume(resume_time: number, resume_date: string, rate_limit?: boolean) {
   const current_epoch = Math.floor(Date.now() / 1000);
   const wait_time = (resume_time - current_epoch) + 3; // Ensures we fire after rate limit has been removed
 
   // If wait_time is negative or zero, trigger immediately
   if (wait_time <= 0) {
     console.log("No wait needed. Starting immediately...");
-    startMain();
+
+    main().catch((err) => {
+
+      if (err.reset_epoch) {
+
+        console.log("Rate limited. Moving to standby...")
+
+        wait_to_resume(err.reset_epoch, err.reset_date);
+
+      } else {
+
+        console.log("There was an error. Moving to standby before resuming...");
+        console.log(`Error: ${err}`)
+        delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
+
+      }
+
+    });
     return;
   }
 
-  console.log("Currently Rate Limited");
+  if (rate_limit) {
+    console.log("Currently Rate Limited");
+  }
   console.log("Resuming at ", resume_date);
 
   const update_interval = setInterval(() => {
     console.log("-----------------");
-    console.log("Currently Rate Limited");
+    if (rate_limit) {
+      console.log("Currently Rate Limited");
+    }
     console.log("Resuming at ", resume_date);
   }, 10800000); // Print update every 3 hours (10800000 ms)
 
   setTimeout(() => {
     clearInterval(update_interval);
     console.log("Rate limit expired. Restarting...");
-    startMain();
+
+    main().catch((err) => {
+
+      if (err.reset_epoch) {
+
+        console.log("Rate limited. Moving to standby...")
+
+        wait_to_resume(err.reset_epoch, err.reset_date);
+
+      } else {
+
+        console.log("There was an error. Moving to standby before resuming...");
+        console.log(`Error: ${err}`)
+        delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
+
+      }
+
+    });
   }, wait_time * 1000); // Convert wait_time to milliseconds
 
-  function startMain() {
-    main().catch((err) => {
-      if (typeof err === 'string') {
-        throw new Error(`Need to restart... ${err}`);
-      } else if (err.reset_epoch) {
-        console.log("Moving to standby...");
-        wait_to_resume(err.reset_epoch, err.reset_date);
-      }
-    });
-  }
 }
 
 
@@ -551,22 +607,19 @@ setTimeout(() => {
 
   main().catch((err) => {
 
-    if (err.reset_epoch) {
+    // if (err.reset_epoch) {
 
-      console.log("Rate limited. Moving to standby...")
+    //   console.log("Rate limited. Moving to standby...")
 
-      wait_to_resume(err.reset_epoch, err.reset_date);
+    //   wait_to_resume(err.reset_epoch, err.reset_date);
 
-    } else {
+    // } else {
 
-      console.log("There was an error. Moving to standby before resuming...");
-      console.log(`Error: ${err}`)
+    console.log("There was an error. Moving to standby before resuming...");
+    console.log(`Error: ${err}`)
+    delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
 
-      const delay_time = Math.floor(Date.now() / 1000) + REBOOT_DELAY_TIME * 60;
-
-      wait_to_resume(delay_time, new Date(delay_time).toISOString())
-
-    }
+    // }
 
   });
 
