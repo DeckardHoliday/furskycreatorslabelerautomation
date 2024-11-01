@@ -8,10 +8,11 @@ import * as fs from "fs";
 import { Client as PgClient } from "pg";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import { delay_start } from "./lib";
 dayjs.extend(relativeTime);
 
 const DELAY_START_TIME = 15000; // Delays main() function call so we don't spam connection requests on docker restart instance loop
-const REBOOT_DELAY_TIME = 15;   // Delays restart when a firehose error exists by 15 minutes. This way, we reduce the number of reconnect attempts
+const REBOOT_DELAY_TIME = 15 * 60 * 1000;   // Delays restart when a firehose error exists by 15 minutes. This way, we reduce the number of reconnect attempts
 const FIREHOSE_ERROR_LOG_STRING = "FIREHOSE ERROR. MOVING TO STANDBY BEFORE RESTARTING...";
 
 const GENERATE_JSON_FILE_OF_SPECIES =
@@ -44,100 +45,6 @@ function toTitleCase(str: string) {
     /\w\S*/g,
     (text) => text.charAt(0).toUpperCase() + text.substring(1).toLowerCase()
   );
-}
-
-function delay_restart(delay_in_ms: number) {
-
-  console.log(`Standing by. Will resume in ~${delay_in_ms / 1000 / 60} minutes`);
-
-  setTimeout(() => {
-    console.log("Rate limit expired. Restarting...");
-
-    main().catch((err) => {
-
-      if (err.reset_epoch) {
-
-        console.log("Rate limited. Moving to standby...")
-
-        wait_to_resume(err.reset_epoch, err.reset_date);
-
-      } else {
-
-        console.log("There was an error. Moving to standby before resuming...");
-        console.log(`Error: ${err}`)
-        delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
-
-      }
-
-    });
-  }, delay_in_ms)
-
-}
-
-function wait_to_resume(resume_time: number, resume_date: string, rate_limit?: boolean) {
-  const current_epoch = Math.floor(Date.now() / 1000);
-  const wait_time = (resume_time - current_epoch) + 3; // Ensures we fire after rate limit has been removed
-
-  // If wait_time is negative or zero, trigger immediately
-  if (wait_time <= 0) {
-    console.log("No wait needed. Starting immediately...");
-
-    main().catch((err) => {
-
-      if (err.reset_epoch) {
-
-        console.log("Rate limited. Moving to standby...")
-
-        wait_to_resume(err.reset_epoch, err.reset_date);
-
-      } else {
-
-        console.log("There was an error. Moving to standby before resuming...");
-        console.log(`Error: ${err}`)
-        delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
-
-      }
-
-    });
-    return;
-  }
-
-  if (rate_limit) {
-    console.log("Currently Rate Limited");
-  }
-  console.log("Resuming at ", resume_date);
-
-  const update_interval = setInterval(() => {
-    console.log("-----------------");
-    if (rate_limit) {
-      console.log("Currently Rate Limited");
-    }
-    console.log("Resuming at ", resume_date);
-  }, 10800000); // Print update every 3 hours (10800000 ms)
-
-  setTimeout(() => {
-    clearInterval(update_interval);
-    console.log("Rate limit expired. Restarting...");
-
-    main().catch((err) => {
-
-      if (err.reset_epoch) {
-
-        console.log("Rate limited. Moving to standby...")
-
-        wait_to_resume(err.reset_epoch, err.reset_date);
-
-      } else {
-
-        console.log("There was an error. Moving to standby before resuming...");
-        console.log(`Error: ${err}`)
-        delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
-
-      }
-
-    });
-  }, wait_time * 1000); // Convert wait_time to milliseconds
-
 }
 
 
@@ -599,28 +506,32 @@ LIMIT 1;`;
   firehose.start();
 }
 
-console.log(`Waiting ${DELAY_START_TIME / 1000} seconds before firing...`);
+function init() {
 
-setTimeout(() => {
+  console.log(`Waiting ${DELAY_START_TIME / 1000} seconds before firing...`);
 
-  console.log("Starting...")
+  setTimeout(() => {
 
-  main().catch((err) => {
+    console.log("Starting...")
 
-    // if (err.reset_epoch) {
+    main().catch((err) => {
 
-    //   console.log("Rate limited. Moving to standby...")
+      let delay_time = REBOOT_DELAY_TIME;
 
-    //   wait_to_resume(err.reset_epoch, err.reset_date);
+      if (err.reset_epoch) {
 
-    // } else {
+        const futureEpochTime = err.reset_epoch * 1000; // convert to ms
+        const currentTime = Date.now();
+        delay_time = futureEpochTime - currentTime;
 
-    console.log("There was an error. Moving to standby before resuming...");
-    console.log(`Error: ${err}`)
-    delay_restart(REBOOT_DELAY_TIME * 60 * 1000)
+      }
 
-    // }
+      delay_start(delay_time, init);
 
-  });
+    });
 
-}, DELAY_START_TIME)
+  }, DELAY_START_TIME)
+
+}
+
+init();
