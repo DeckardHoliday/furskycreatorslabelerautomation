@@ -94,54 +94,58 @@ async function main() {
   });
 
   const getOzoneCurrentPolicies = async () => {
-    await agent.refreshSession();
-    let response = await agent
-      .withProxy("atproto_labeler", ozone_service_user_did)
-      .api.com.atproto.repo.getRecord({
-        repo: ozone_service_user_did,
-        collection: "app.bsky.labeler.service",
-        rkey: "self",
-      });
-    if (GENERATE_JSON_FILE_OF_SPECIES) {
-      if (!fs.existsSync(GENERATE_JSON_FILE_OF_SPECIES__DIR)) {
-        fs.mkdirSync(GENERATE_JSON_FILE_OF_SPECIES__DIR, { recursive: true });
-      }
-      const knownSonaPosts = await dbclient.query(`
+    try {
+      await agent.refreshSession();
+      let response = await agent
+        .withProxy("atproto_labeler", ozone_service_user_did)
+        .api.com.atproto.repo.getRecord({
+          repo: ozone_service_user_did,
+          collection: "app.bsky.labeler.service",
+          rkey: "self",
+        });
+      if (GENERATE_JSON_FILE_OF_SPECIES) {
+        if (!fs.existsSync(GENERATE_JSON_FILE_OF_SPECIES__DIR)) {
+          fs.mkdirSync(GENERATE_JSON_FILE_OF_SPECIES__DIR, { recursive: true });
+        }
+        const knownSonaPosts = await dbclient.query(`
                 SELECT postid, species FROM sonaposts
             `);
-      const current_simple = (
-        response as any
-      ).data.value.policies.labelValueDefinitions.map((i: any) => {
-        let postsLink = `https://bsky.app/search?q=from%3A${process.env.BSKY_USER
-          }+%22species%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
-        let sonaPostDefined =
-          knownSonaPosts.rows.filter((j) => j.species === i.identifier)
-            .length === 1;
-        let sonaPost;
-        if (sonaPostDefined) {
-          sonaPost = `https://bsky.app/profile/${ozone_service_user_did}/post/${knownSonaPosts.rows.filter((j) => j.species === i.identifier)[0]
-            .postid
-            }`;
-        }
-        return {
-          id: i.identifier,
-          name: i.locales[0].name,
-          description: i.locales[0].description,
-          locales: i.locales,
-          posts: sonaPost || postsLink,
-        };
-      });
-      fs.writeFile(
-        `${GENERATE_JSON_FILE_OF_SPECIES__DIR}/${GENERATE_JSON_FILE_OF_SPECIES__NAME}`,
-        JSON.stringify(current_simple),
-        function (err) {
-          if (err) {
-            console.log(err);
+        const current_simple = (
+          response as any
+        ).data.value.policies.labelValueDefinitions.map((i: any) => {
+          let postsLink = `https://bsky.app/search?q=from%3A${process.env.BSKY_USER
+            }+%22species%3A%22+%22${i.identifier.replace(/\-/g, "+")}%22`;
+          let sonaPostDefined =
+            knownSonaPosts.rows.filter((j) => j.species === i.identifier)
+              .length === 1;
+          let sonaPost;
+          if (sonaPostDefined) {
+            sonaPost = `https://bsky.app/profile/${ozone_service_user_did}/post/${knownSonaPosts.rows.filter((j) => j.species === i.identifier)[0]
+              .postid
+              }`;
           }
-        }
-      );
+          return {
+            id: i.identifier,
+            name: i.locales[0].name,
+            description: i.locales[0].description,
+            locales: i.locales,
+            posts: sonaPost || postsLink,
+          };
+        });
+        fs.writeFile(
+          `${GENERATE_JSON_FILE_OF_SPECIES__DIR}/${GENERATE_JSON_FILE_OF_SPECIES__NAME}`,
+          JSON.stringify(current_simple),
+          function (err) {
+            if (err) {
+              console.log(err);
+            }
+          }
+        );
+      }
+      return (response as any).data.value.policies;
+    } catch (err) {
+      console.error(`Error getting Ozone Policies: ${err}`);
     }
-    return (response as any).data.value.policies;
   };
 
   const addLabelIfNotInOzoneCurrentPolicies = async (
@@ -378,7 +382,10 @@ async function main() {
           cursorFirehoseTs
         ).fromNow(true)} behind`)
       })
-      .catch((err) => console.error(err));
+      .catch((err) => {
+        console.error(`There was an error getting ozone policies: ${err}`);
+        delay_start(REBOOT_DELAY_TIME, init);
+      });
   }, 60000); // Every minute, store checkpoint in db; may raise this in the future.
 
   firehose.on("commit", async (commit) => {
@@ -498,7 +505,7 @@ LIMIT 1;`;
           }
         }
       } catch (err) {
-        console.error(err);
+        console.error(`Error on commit: ${err}`);
       }
     });
   });
